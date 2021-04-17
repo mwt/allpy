@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from pycontests import eq2p
+from allpy import eq2p
 import numpy as np
 import matplotlib.pyplot as plt
 
