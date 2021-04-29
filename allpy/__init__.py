@@ -6,9 +6,10 @@ from scipy.linalg import solve_triangular
 
 #%% find atomless pdf and cdf for one player
 
+
 def gtilde(
     vi: Callable[[numpy.ndarray, numpy.ndarray], numpy.ndarray],
-    ci: Callable[[numpy.ndarray], numpy.ndarray],
+    ci: Callable[[numpy.ndarray], numpy.ndarray] = lambda x: x,
     b: float = 1,
     num: int = 1000,
 ) -> dict:
@@ -23,12 +24,19 @@ def gtilde(
         num = int(num)
     # make a grid of `num` points from (eps > 0) to `b`
     sgrid = numpy.linspace((b / num), b, num)
-    # create a lower triangular matrix of vlaues
-    vitril = numpy.tril(vi(sgrid[:, numpy.newaxis], sgrid))
-    # find the PDF (/num) by solving the system of equations
-    pdfi = solve_triangular(vitril, ci(sgrid), lower=True)
-    # cumsum the PDF to get atomless CDF
-    cdfi = numpy.cumsum(pdfi)
+    if callable(vi):
+        # create a lower triangular matrix of vlaues
+        vitril = numpy.tril(vi(sgrid[:, numpy.newaxis], sgrid))
+        # find the PDF (/num) by solving the system of equations
+        pdfi = solve_triangular(vitril, ci(sgrid), lower=True)
+        # cumsum the PDF to get atomless CDF
+        cdfi = numpy.cumsum(pdfi)
+    else:
+        # presumably, it's a number of some sort
+        # then we have an exact solution for CDF
+        cdfi = ci(sgrid) / vi
+        # invert cumsum to get (scaled) PDF
+        pdfi = numpy.insert(numpy.diff(cdfi), 0, cdfi[0])
     # find the index of sbar
     bari = numpy.argmax(sgrid[cdfi <= 1])
     return {
@@ -40,26 +48,62 @@ def gtilde(
         "success": (cdfi[-1] > 1),
     }
 
+
 #%% 2 player equilibrium function
 
-def eq2p(v: tuple, c: tuple, b: float = None, num: int = 1000) -> dict:
+
+def eq2p(
+    v: tuple = (1., ), 
+    c: tuple = (lambda x: x, ), 
+    b: float = None, 
+    num: int = 1000
+) -> dict:
     """
     Calculate the equilibrium strategies for two players.
-    v   : tuple of functions for the players' values which each take two arguments. The first argument is the player's own score and the second argument is the score of the opponent.
-    ci  : tuple of functions for the players' costs with respect to their own scores.
+    v   : tuple of functions or constants for the players' values which each take two arguments. The first argument is the player's own score and the second argument is the score of the opponent.
+    c   : tuple of functions for the players' costs with respect to their own scores.
     b   : optional float for the upper bound of the estimate. Heuristics will be used if not specified
     num : optional integer for the number of estimation points. A larger num is more accurate, but is slower
     """
-    v1, v2 = v
-    c1, c2 = c
-    # if b is undefined, guess a prize of v(1,0)/c(1) or v(0,1)/c(1) with log cost
+
+    # try to intelligently interpret v
+    if isinstance(v, (Callable, int, float)):
+        v1 = v
+        v2 = v
+    elif len(v) == 2:
+        v1, v2 = v
+    elif len(v) == 1:
+        (v1,) = v
+        (v2,) = v
+    else:
+        raise ValueError("v should be a tuple of length 1 or 2")
+
+    # try to intelligently interpret c
+    if callable(c):
+        c1 = c
+        c2 = c
+    elif len(c) == 2:
+        c1, c2 = c
+    elif len(v) == 1:
+        (c1,) = c
+        (c2,) = c
+    else:
+        raise ValueError("c should be a tuple of length 1 or 2")
+
+    # if b is undefined, make guess with fixed prize and linear cost
     if b is None:
-        b = numpy.max(
-            numpy.exp(
-                [v1(1, 0) / c1(1), v2(1, 0) / c2(1),
-                 v1(0, 1) / c1(1), v2(0, 1) / c2(1)]
-            )
-        )
+        if callable(v1):
+            b1 = v1(0, 0) / (c1(1 / num) * num)
+        else:
+            b1 = v1 / (c1(1 / num) * num)
+
+        if callable(v2):
+            b2 = v2(0, 0) / (c2(1 / num) * num)
+        else:
+            b2 = v2 / (c2(1 / num) * num)
+
+        b = min(b1, b2)
+
     while True:
         player1 = gtilde(v1, c1, b, num)
         player2 = gtilde(v2, c2, b, num)
@@ -88,4 +132,4 @@ def eq2p(v: tuple, c: tuple, b: float = None, num: int = 1000) -> dict:
     }
 
 
-
+# %%
