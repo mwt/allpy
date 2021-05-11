@@ -2,16 +2,17 @@
 
 from typing import Callable
 import numpy
-from scipy.linalg import solve_triangular
+from inteq import SolveVolterra
 
 #%% find atomless pdf and cdf for one player
 
 
 def gtilde(
-    vi: Callable[[numpy.ndarray, numpy.ndarray], numpy.ndarray],
+    vi: Callable[[numpy.ndarray, numpy.ndarray], numpy.ndarray] = 1,
     ci: Callable[[numpy.ndarray], numpy.ndarray] = lambda x: x,
     b: float = 1,
     num: int = 1000,
+    method: str = "midpoint",
 ) -> dict:
     """
     Calculate the atomless PDF and CDF for each player.
@@ -23,17 +24,14 @@ def gtilde(
     if not isinstance(num, int):
         num = int(num)
     # make a grid of `num` points from (eps > 0) to `b`
-    sgrid = numpy.linspace((b / num), b, num)
     if callable(vi):
-        # create a lower triangular matrix of vlaues
-        vitril = numpy.tril(vi(sgrid[:, numpy.newaxis], sgrid))
-        # find the PDF (/num) by solving the system of equations
-        pdfi = solve_triangular(vitril, ci(sgrid), lower=True)
+        sgrid, pdfi = SolveVolterra(k=vi, f=ci, a=0, b=b, num=num, method=method)
         # cumsum the PDF to get atomless CDF
-        cdfi = numpy.cumsum(pdfi)
+        cdfi = numpy.cumsum(pdfi * (b/num))
     else:
         # presumably, it's a number of some sort
         # then we have an exact solution for CDF
+        sgrid = numpy.linspace((b / num), b, num)
         cdfi = ci(sgrid) / vi
         # invert cumsum to get (scaled) PDF
         pdfi = numpy.insert(numpy.diff(cdfi), 0, cdfi[0])
@@ -53,10 +51,7 @@ def gtilde(
 
 
 def eq2p(
-    v: tuple = (1., ), 
-    c: tuple = (lambda x: x, ), 
-    b: float = None, 
-    num: int = 1000
+    v: tuple = (1.0,), c: tuple = (lambda x: x,), b: float = None, num: int = 1000
 ) -> dict:
     """
     Calculate the equilibrium strategies for two players.
@@ -105,8 +100,8 @@ def eq2p(
         b = min(b1, b2)
 
     while True:
-        player1 = gtilde(v1, c1, b, num)
-        player2 = gtilde(v2, c2, b, num)
+        player2 = gtilde(v1, c1, b, num)
+        player1 = gtilde(v2, c2, b, num)
         success = any((player1["success"], player2["success"]))
         # if we succeed, then stop -- otherwise, double b and try again
         if success:
@@ -118,7 +113,7 @@ def eq2p(
     # cut the distributions off
     g = player1["pdf"][0 : (bari + 1)], player2["pdf"][0 : (bari + 1)]
     G1, G2 = player1["cdf"][0 : (bari + 1)], player2["cdf"][0 : (bari + 1)]
-    # add the atom
+    # find the atoms
     G = (G1 - G1[-1] + 1), (G2 - G2[-1] + 1)
     # get the grid of s
     sgrid = player1["s"][0 : (bari + 1)]
